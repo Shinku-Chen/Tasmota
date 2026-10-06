@@ -355,14 +355,19 @@ static void ApsBacklight(bool on) {
   AddLog(LOG_LEVEL_INFO, PSTR("APS: Backlight %s"), on ? "on" : "off");
 }
 
-// Switch the backlight off after a period without new screen content.  The panel keeps
-// displaying the last frame; a button press or a screen update brings the light back.
-static void ApsBacklightTick(void) {
+// Scan the shared ADC button ladder.  Called every 50 ms: a once-per-second check would only
+// catch presses held across the sampling instant, which made short taps look like they were
+// ignored.
+static void ApsButtonScan(void) {
   if (analogReadMilliVolts(APS_PIN_BTN_ADC) < APS_BTN_PRESS_MV) {   // Any key pressed
     aps_last_change = TasmotaGlobal.uptime;
     ApsBacklight(true);
-    return;
   }
+}
+
+// Switch the backlight off after a period without new screen content.  The panel keeps
+// displaying the last frame; a button press or a screen update brings the light back.
+static void ApsBacklightTick(void) {
   if (aps_backlight_on && ((TasmotaGlobal.uptime - aps_last_change) >= APS_BACKLIGHT_TIMEOUT)) {
     ApsBacklight(false);
   }
@@ -419,6 +424,11 @@ bool Xdrv95(uint32_t function) {
   switch (function) {
     case FUNC_INIT:
       ApsScreenInit();
+      break;
+    case FUNC_EVERY_50_MSECOND:
+      if (aps_ready) {
+        ApsButtonScan();
+      }
       break;
     case FUNC_EVERY_SECOND:
       if (aps_ready) {
