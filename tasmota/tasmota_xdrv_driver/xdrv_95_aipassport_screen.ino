@@ -324,15 +324,14 @@ static void ApsDrawSetupScreen(void) {
 }
 
 static void ApsDrawConnectedScreen(void) {
-  String url = String("http://") + WiFi.localIP().toString();
   ApsClearStrip(0);
   ApsDrawCjkText(40, "已连接无线网", APS_COLOR_WHITE);
   ApsDrawDivider(80);
   ApsDrawCjkText(120, "网络名称：", APS_COLOR_GRAY);
   ApsDrawText(160, WiFi.SSID().c_str(), APS_COLOR_CYAN, &FreeSansBold12pt7b, &FreeSans9pt7b, nullptr);
-  ApsDrawCjkText(200, "管理页面：", APS_COLOR_GRAY);
-  ApsDrawText(240, url.c_str(), APS_COLOR_CYAN, &FreeSansBold18pt7b, &FreeSansBold12pt7b, &FreeSans9pt7b);
-  ApsClearStrip(280);
+  ApsDrawCjkText(200, "本机地址：", APS_COLOR_GRAY);
+  ApsDrawText(240, WiFi.localIP().toString().c_str(), APS_COLOR_WHITE, &FreeSansBold18pt7b, &FreeSansBold12pt7b, &FreeSans9pt7b);
+  ApsDrawCjkText(280, "浏览器打开此地址", APS_COLOR_GRAY);
 }
 
 static void ApsScreenRefresh(void) {
