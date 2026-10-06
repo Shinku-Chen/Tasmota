@@ -26,6 +26,10 @@
  * access point to join (Tasmota hostname) and the address to open in a browser.  Once the
  * device is connected the panel shows the network name and the address to open.
  *
+ * The backlight is switched off after APS_BACKLIGHT_TIMEOUT seconds without new screen
+ * content; the panel keeps displaying the last frame.  A button press on the shared ADC
+ * ladder (GPIO0) or any new screen content switches the backlight back on.
+ *
  * Self contained: the Tasmota display framework is not used and no other behaviour,
  * setting or command is changed.
  *
@@ -57,6 +61,10 @@
 #define APS_PIN_BL              21
 #define APS_SPI_HZ              (80 * 1000 * 1000)
 
+#define APS_PIN_BTN_ADC         0                     // The three buttons share ADC1 channel 0 (see the AI Passport BSP)
+#define APS_BTN_PRESS_MV        2000                  // Button ladder reads below this while a key is pressed (released is ~3300 mV)
+#define APS_BACKLIGHT_TIMEOUT   300                   // Seconds without a screen change before the backlight goes off
+
 #define APS_COLOR_BG            0x0861                // Dark blue background
 #define APS_COLOR_WHITE         0xFFFF
 #define APS_COLOR_GRAY          0xA514
@@ -67,6 +75,8 @@ static bool aps_ready = false;
 static uint8_t aps_screen = 0xFF;                     // 0xFF = not drawn, 1 = setup hint, 2 = connected
 static uint32_t aps_ip = 0;
 static char aps_ssid[40] = "";
+static uint32_t aps_last_change = 0;                  // Uptime of the last screen change (backlight idle timer)
+static bool aps_backlight_on = false;
 
 typedef struct {
   uint8_t  cmd;
@@ -334,9 +344,32 @@ static void ApsDrawConnectedScreen(void) {
   ApsDrawCjkText(280, "浏览器打开此地址", APS_COLOR_GRAY);
 }
 
+// ------------------------------------------------------------------ backlight --
+
+static void ApsBacklight(bool on) {
+  if (aps_backlight_on == on) {
+    return;
+  }
+  aps_backlight_on = on;
+  digitalWrite(APS_PIN_BL, on ? HIGH : LOW);
+  AddLog(LOG_LEVEL_INFO, PSTR("APS: Backlight %s"), on ? "on" : "off");
+}
+
+// Switch the backlight off after a period without new screen content.  The panel keeps
+// displaying the last frame; a button press or a screen update brings the light back.
+static void ApsBacklightTick(void) {
+  if (analogReadMilliVolts(APS_PIN_BTN_ADC) < APS_BTN_PRESS_MV) {   // Any key pressed
+    aps_last_change = TasmotaGlobal.uptime;
+    ApsBacklight(true);
+    return;
+  }
+  if (aps_backlight_on && ((TasmotaGlobal.uptime - aps_last_change) >= APS_BACKLIGHT_TIMEOUT)) {
+    ApsBacklight(false);
+  }
+}
+
 static void ApsScreenRefresh(void) {
-  uint32_t ip = (uint32_t)WiFi.localIP();
-  uint8_t screen = WifiHasIPv4() ? 2 : 1;             // 2 = connected, 1 = Wi-Fi setup hint
+  uint32_t ip = (uint32_t)WiFi.localIP();  uint8_t screen = WifiHasIPv4() ? 2 : 1;             // 2 = connected, 1 = Wi-Fi setup hint
 
   bool redraw = (screen != aps_screen) || ((2 == screen) && (ip != aps_ip));
   if ((1 == screen) && (0 != strcmp(aps_ssid, TasmotaGlobal.hostname))) {
@@ -345,6 +378,8 @@ static void ApsScreenRefresh(void) {
   if (!redraw) {
     return;
   }
+  aps_last_change = TasmotaGlobal.uptime;             // New content: keep the backlight on
+  ApsBacklight(true);
 
   if (2 == screen) {
     ApsDrawConnectedScreen();
@@ -368,8 +403,9 @@ static void ApsScreenInit(void) {
     return;
   }
   aps_ready = true;
+  aps_last_change = TasmotaGlobal.uptime;
   ApsScreenRefresh();                                 // First frame
-  digitalWrite(APS_PIN_BL, HIGH);                     // Backlight on with a clean screen
+  ApsBacklight(true);                                 // Backlight on with a clean screen
   AddLog(LOG_LEVEL_INFO, PSTR("APS: AI Passport screen active"));
 }
 
@@ -387,6 +423,7 @@ bool Xdrv95(uint32_t function) {
     case FUNC_EVERY_SECOND:
       if (aps_ready) {
         ApsScreenRefresh();
+        ApsBacklightTick();
       }
       break;
     case FUNC_ACTIVE:
